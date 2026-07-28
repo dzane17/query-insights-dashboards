@@ -46,6 +46,7 @@ import {
   GROUP_BY_OPTIONS,
   EXPORTER_TYPES_LIST,
   EXPORTER_TYPE,
+  REMOTE_REPOSITORY_REGISTRATION_CONFIG,
 } from '../../../common/constants';
 import { QueryInsightsDataSourceMenu } from '../../components/DataSourcePicker';
 import { QueryInsightsDashboardsPluginStartDependencies } from '../../types';
@@ -749,7 +750,11 @@ const Configuration = ({
                     <EuiFlexItem>
                       <EuiFormRow
                         label="exporter.remote.repository"
-                        helpText="Select an existing repository or register a new one."
+                        helpText={
+                          REMOTE_REPOSITORY_REGISTRATION_CONFIG.enabled
+                            ? 'Select an existing repository or register a new one.'
+                            : 'Select an existing repository.'
+                        }
                         style={formRowPadding}
                         isInvalid={remoteEnabled && remoteRepository.trim() === ''}
                         error={
@@ -778,15 +783,17 @@ const Configuration = ({
                               data-test-subj="remote-exporter-repository"
                             />
                           </EuiFlexItem>
-                          <EuiFlexItem grow={false}>
-                            <EuiButton
-                              size="s"
-                              onClick={() => setIsRepoFlyoutOpen(true)}
-                              data-test-subj="register-repo-button"
-                            >
-                              Register new
-                            </EuiButton>
-                          </EuiFlexItem>
+                          {REMOTE_REPOSITORY_REGISTRATION_CONFIG.enabled && (
+                            <EuiFlexItem grow={false}>
+                              <EuiButton
+                                size="s"
+                                onClick={() => setIsRepoFlyoutOpen(true)}
+                                data-test-subj="register-repo-button"
+                              >
+                                Register new
+                              </EuiButton>
+                            </EuiFlexItem>
+                          )}
                         </EuiFlexGroup>
                       </EuiFormRow>
                     </EuiFlexItem>
@@ -878,7 +885,7 @@ const Configuration = ({
           </EuiFlexGroup>
         </EuiBottomBar>
       ) : null}
-      {isRepoFlyoutOpen && (
+      {REMOTE_REPOSITORY_REGISTRATION_CONFIG.enabled && isRepoFlyoutOpen && (
         <RegisterRepositoryFlyout
           core={core}
           dataSourceId={dataSource?.id}
