@@ -10,6 +10,8 @@
         "node_id": "UYKFun8PSAeJvkkt9cWf0w",
         "wlm_group_id": "DEFAULT_WORKLOAD_GROUP",
         "group_by": "NONE",
+        "username": "admin",
+        "user_roles": ["all_access", "security_manager"],
         "failed": false,
         "total_shards": 1,
         "labels": {
@@ -46,6 +48,8 @@
         "node_id": "UYKFun8PSAeJvkkt9cWf0w",
         "wlm_group_id": "SEARCH_GROUP",
         "group_by": "NONE",
+        "username": "analyst",
+        "user_roles": ["readall", "kibana_user"],
         "failed": true,
         "total_shards": 1,
         "labels": {
@@ -65,6 +69,8 @@
         "node_id": "KINGun8PSAeJvkkt9cWf0w",
         "wlm_group_id": "DEFAULT_WORKLOAD_GROUP",
         "group_by": "NONE",
+        "username": "dashboard_user",
+        "user_roles": ["kibana_user"],
         "failed": false,
         "total_shards": 1,
         "labels": {

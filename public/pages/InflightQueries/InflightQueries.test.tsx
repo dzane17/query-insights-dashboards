@@ -1008,9 +1008,9 @@ describe('InflightQueries - additional coverage', () => {
 
     await waitFor(
       () => {
-        // Should render the task in the table
+        // Should render the task in the table. Search type is hidden by default now,
+        // so assert on the task id and index (both visible-by-default columns).
         expect(screen.getAllByText('new-format:100').length).toBeGreaterThanOrEqual(1);
-        expect(screen.getByText('dfs query then fetch')).toBeInTheDocument();
         expect(screen.getByText('big-test')).toBeInTheDocument();
       },
       { timeout: 5000 }

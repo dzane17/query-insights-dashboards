@@ -43,6 +43,8 @@ import {
   TIMESTAMP,
   TOTAL_SHARDS,
   TYPE,
+  USERNAME,
+  USER_ROLES,
   WLM_GROUP,
   CHART_COLORS,
 } from '../../../common/constants';
@@ -60,6 +62,7 @@ import {
 import {
   getVersionOnce,
   isVersion33OrHigher,
+  isVersion35OrHigher,
   isVersion36OrHigher,
 } from '../../utils/version-utils';
 import {
@@ -81,6 +84,8 @@ const INDICES_FIELD = 'indices';
 const SEARCH_TYPE_FIELD = 'search_type';
 const NODE_ID_FIELD = 'node_id';
 const TOTAL_SHARDS_FIELD = 'total_shards';
+const USERNAME_FIELD = 'username';
+const USER_ROLES_FIELD = 'user_roles';
 const WLM_GROUP_FIELD = 'wlm_group_id';
 const METRIC_DEFAULT_MSG = 'Not enabled';
 
@@ -123,6 +128,7 @@ const QueryInsights = ({
   const [wlmIdToNameMap, setWlmIdToNameMap] = useState<Record<string, string>>({});
   const [wlmAvailable, setWlmAvailable] = useState<boolean>(false);
   const [statusSupported, setStatusSupported] = useState<boolean>(false);
+  const [userInfoSupported, setUserInfoSupported] = useState<boolean>(false);
   const [queryInsightWlmNavigationSupported, setQueryInsightWlmNavigationSupported] =
     useState<boolean>(false);
   // Initialize search query based on URL parameters
@@ -182,13 +188,19 @@ const QueryInsights = ({
       { id: 'cpu', label: 'CPU Time' },
       { id: 'memory', label: 'Memory Usage' },
       { id: 'indices', label: 'Indices' },
+      ...(userInfoSupported
+        ? [
+            { id: 'username', label: 'Username' },
+            { id: 'user_roles', label: 'User Roles' },
+          ]
+        : []),
       { id: 'search_type', label: 'Search Type', defaultVisible: false },
-      { id: 'node_id', label: 'Node ID', defaultVisible: false },
+      { id: 'node_id', label: 'Coordinator Node ID', defaultVisible: false },
       ...(queryInsightWlmNavigationSupported ? [{ id: 'wlm_group', label: 'WLM Group' }] : []),
       { id: 'total_shards', label: 'Total Shards', defaultVisible: false },
     ];
     return defs;
-  }, [statusSupported, queryInsightWlmNavigationSupported]);
+  }, [statusSupported, userInfoSupported, queryInsightWlmNavigationSupported]);
 
   const {
     visibleColumnIds,
@@ -249,6 +261,7 @@ const QueryInsights = ({
         const versionSupported = isVersion33OrHigher(version);
         setQueryInsightWlmNavigationSupported(versionSupported);
         setStatusSupported(isVersion36OrHigher(version));
+        setUserInfoSupported(isVersion35OrHigher(version));
 
         if (versionSupported) {
           const hasWlm = await detectWlm();
@@ -350,12 +363,24 @@ const QueryInsights = ({
       { label: 'Timestamp', key: 'timestamp', accessor: (q) => q.timestamp, type: 'number' },
       { label: 'Indices', key: 'indices', accessor: (q) => q.indices, type: 'array' },
       { label: 'Search Type', key: 'search_type', accessor: (q) => q.search_type, type: 'string' },
-      { label: 'Node ID', key: 'node_id', accessor: (q) => q.node_id, type: 'string' },
+      {
+        label: 'Coordinator Node ID',
+        key: 'node_id',
+        accessor: (q) => q.node_id,
+        type: 'string',
+      },
       {
         label: 'Total Shards',
         key: 'total_shards',
         accessor: (q) => q.total_shards,
         type: 'number',
+      },
+      { label: 'Username', key: 'username', accessor: (q) => q.username, type: 'string' },
+      {
+        label: 'User Roles',
+        key: 'user_roles',
+        accessor: (q) => q.user_roles,
+        type: 'array',
       },
       {
         label: 'Status',
@@ -578,6 +603,42 @@ const QueryInsights = ({
         sortable: true,
         truncateText: true,
       },
+      ...(userInfoSupported
+        ? [
+            {
+              id: 'username',
+              field: USERNAME_FIELD as keyof SearchQueryRecord,
+              name: USERNAME,
+              render: (username: string, q: SearchQueryRecord) => (
+                <span>
+                  {q.group_by === 'SIMILARITY' ? (
+                    <EuiBadge color="hollow">Aggregated</EuiBadge>
+                  ) : (
+                    username || '-'
+                  )}
+                </span>
+              ),
+              sortable: (q: SearchQueryRecord) => q.username || '-',
+              truncateText: true,
+            },
+            {
+              id: 'user_roles',
+              field: USER_ROLES_FIELD as keyof SearchQueryRecord,
+              name: USER_ROLES,
+              render: (userRoles: string[] = [], q: SearchQueryRecord) => (
+                <span>
+                  {q.group_by === 'SIMILARITY' ? (
+                    <EuiBadge color="hollow">Aggregated</EuiBadge>
+                  ) : (
+                    userRoles.join(', ') || '-'
+                  )}
+                </span>
+              ),
+              sortable: (q: SearchQueryRecord) => (q.user_roles || []).join(', '),
+              truncateText: true,
+            },
+          ]
+        : []),
       {
         id: 'search_type',
         field: SEARCH_TYPE_FIELD as keyof SearchQueryRecord,

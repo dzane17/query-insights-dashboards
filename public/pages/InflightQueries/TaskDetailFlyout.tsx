@@ -191,7 +191,7 @@ export const TaskDetailFlyout: React.FC<Props> = ({
             {isFinished && endTime > 0 && (
               <PanelItem label="End Time" value={convertTime(endTime)} />
             )}
-            <PanelItem label="Coordinator Node" value={coordinatorNode} />
+            <PanelItem label="Coordinator Node ID" value={coordinatorNode} />
             <PanelItem label="Search Type" value={searchType} />
             <PanelItem label="Indices" value={indices} />
             {(task as any)._topNId && <PanelItem label="Top N ID" value={(task as any)._topNId} />}

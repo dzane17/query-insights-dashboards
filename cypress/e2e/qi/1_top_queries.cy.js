@@ -276,6 +276,8 @@ describe('Query Insights — Dynamic Columns with Intercepted Top Queries (MIXED
       'Avg CPU Time / CPU Time',
       'Avg Memory Usage / Memory Usage',
       'Indices',
+      'Username',
+      'User Roles',
       'WLM Group',
     ];
     getHeaders().should('deep.equal', expected);
@@ -297,6 +299,8 @@ describe('Query Insights — Dynamic Columns with Intercepted Top Queries (MIXED
       'CPU Time',
       'Memory Usage',
       'Indices',
+      'Username',
+      'User Roles',
       'WLM Group',
     ];
     getHeaders().should('deep.equal', expected);
@@ -347,6 +351,8 @@ describe('Query Insights — Dynamic Columns with Intercepted Top Queries (MIXED
       'Avg CPU Time / CPU Time',
       'Avg Memory Usage / Memory Usage',
       'Indices',
+      'Username',
+      'User Roles',
       'WLM Group',
     ];
     getHeaders().should('deep.equal', expected);
@@ -380,6 +386,8 @@ describe('Query Insights — Dynamic Columns (QUERY ONLY fixture)', () => {
       'CPU Time',
       'Memory Usage',
       'Indices',
+      'Username',
+      'User Roles',
       'WLM Group',
     ];
     getHeaders().should('deep.equal', expected);

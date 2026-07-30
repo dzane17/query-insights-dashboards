@@ -310,7 +310,7 @@ const TaskDetail = ({
                 label="Search Type"
                 value={(finishedTask.search_type || '-').replace(/_/g, ' ')}
               />
-              <PanelItem label="Node ID" value={finishedTask.node_id || '-'} />
+              <PanelItem label="Coordinator Node ID" value={finishedTask.node_id || '-'} />
               <PanelItem label="Total Shards" value={finishedTask.total_shards || '-'} />
               <PanelItem
                 label="CPU Usage"
@@ -473,7 +473,7 @@ const TaskDetail = ({
               </EuiFlexItem>
               <PanelItem label="Start Time" value={convertTime(liveTask.start_time)} />
               <PanelItem
-                label="Coordinator Node"
+                label="Coordinator Node ID"
                 value={liveTask.coordinator_task?.node_id || '-'}
               />
               <PanelItem label="Time Elapsed" value={`${liveTask.total_latency_millis} ms`} />

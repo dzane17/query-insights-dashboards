@@ -490,7 +490,7 @@ export const InflightQueries = ({
         type: 'string',
       },
       {
-        label: 'Coordinator Node',
+        label: 'Coordinator Node ID',
         key: 'coordinator_node',
         accessor: (q) => (q as any).coordinator_node,
         type: 'string',
@@ -557,11 +557,11 @@ export const InflightQueries = ({
       { id: 'timestamp', label: 'Timestamp' },
       { id: 'task_id', label: 'Task ID', pinned: true },
       { id: 'index', label: 'Index' },
-      { id: 'coordinator_node', label: 'Coordinator Node' },
+      { id: 'coordinator_node', label: 'Coordinator Node ID', defaultVisible: false },
       { id: 'time_elapsed', label: 'Time Elapsed' },
       { id: 'cpu_usage', label: 'CPU Usage' },
       { id: 'memory_usage', label: 'Memory Usage' },
-      { id: 'search_type', label: 'Search Type' },
+      { id: 'search_type', label: 'Search Type', defaultVisible: false },
       { id: 'status', label: 'Status' },
     ];
     if (queryInsightWlmNavigationSupported) {
@@ -1159,7 +1159,7 @@ export const InflightQueries = ({
                 : []),
               ...(isColumnVisible('index') ? [{ field: 'index', name: 'Index' }] : []),
               ...(isColumnVisible('coordinator_node')
-                ? [{ field: 'coordinator_node', name: 'Coordinator node' }]
+                ? [{ field: 'coordinator_node', name: 'Coordinator Node ID' }]
                 : []),
               ...(isColumnVisible('time_elapsed')
                 ? [

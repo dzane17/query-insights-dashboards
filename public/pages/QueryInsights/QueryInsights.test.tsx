@@ -15,6 +15,7 @@ import { DataSourceContext } from '../TopNQueries/TopNQueries';
 jest.mock('../../utils/version-utils', () => ({
   getVersionOnce: jest.fn().mockResolvedValue('3.6.0'),
   isVersion33OrHigher: jest.fn().mockReturnValue(true),
+  isVersion35OrHigher: jest.fn().mockReturnValue(true),
   isVersion36OrHigher: jest.fn().mockReturnValue(true),
 }));
 
@@ -252,6 +253,8 @@ describe('QueryInsights Component', () => {
           'Avg CPU Time / CPU Time',
           'Avg Memory Usage / Memory Usage',
           'Indices',
+          'Username',
+          'User Roles',
           'WLM Group',
         ];
         expect(headerTexts).toEqual(expectedHeaders);
@@ -304,6 +307,8 @@ describe('QueryInsights Component', () => {
           'CPU Time',
           'Memory Usage',
           'Indices',
+          'Username',
+          'User Roles',
           'WLM Group',
         ];
         expect(headerTexts).toEqual(expectedHeaders);
@@ -334,6 +339,8 @@ describe('QueryInsights Component', () => {
           'Avg CPU Time / CPU Time',
           'Avg Memory Usage / Memory Usage',
           'Indices',
+          'Username',
+          'User Roles',
           'WLM Group',
         ];
         expect(headerTexts).toEqual(expectedHeaders);
