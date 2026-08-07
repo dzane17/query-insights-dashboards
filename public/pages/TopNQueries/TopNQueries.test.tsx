@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { MemoryRouter } from 'react-router-dom';
 import TopNQueries, { QUERY_INSIGHTS, CONFIGURATION } from './TopNQueries';
@@ -12,7 +12,24 @@ import { CoreStart, AppMountParameters } from 'opensearch-dashboards/public';
 import { QueryInsightsDashboardsPluginStartDependencies } from '../../types';
 import { getVersionOnce } from '../../utils/version-utils';
 
-jest.mock('../QueryInsights/QueryInsights', () => () => <div>Mocked QueryInsights</div>);
+interface MockQueryInsightsProps {
+  accessDenied?: boolean;
+  queries: Array<{ id?: string }>;
+  retrieveQueries: (start: string, end: string) => Promise<void>;
+  onDataSourceChange: () => Promise<void> | void;
+}
+
+let mockQueryInsightsProps: MockQueryInsightsProps | undefined;
+
+jest.mock('../QueryInsights/QueryInsights', () => (props: MockQueryInsightsProps) => {
+  mockQueryInsightsProps = props;
+  return (
+    <div>
+      Mocked QueryInsights
+      {props.accessDenied && <span>Mocked access denied</span>}
+    </div>
+  );
+});
 jest.mock('../Configuration/Configuration', () => () => <div>Mocked Configuration</div>);
 jest.mock('../QueryDetails/QueryDetails', () => () => <div>Mocked QueryDetails</div>);
 jest.mock('../../utils/version-utils');
@@ -68,6 +85,16 @@ const setUpDefaultEnabledSettings = () => {
 const mockDepsStart = {} as QueryInsightsDashboardsPluginStartDependencies;
 const mockParams = {} as AppMountParameters;
 
+const createDeferred = <T,>() => {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason?: unknown) => void = () => undefined;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+};
+
 const renderTopNQueries = (type: string) =>
   render(
     <MemoryRouter initialEntries={[type]}>
@@ -78,6 +105,8 @@ const renderTopNQueries = (type: string) =>
 describe('TopNQueries Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.history.replaceState({}, '', '/');
+    mockQueryInsightsProps = undefined;
     (getVersionOnce as jest.Mock).mockResolvedValue('3.1.0');
   });
 
@@ -121,6 +150,48 @@ describe('TopNQueries Component', () => {
       expect(screen.getByText('Mocked Configuration')).toBeInTheDocument();
       expect(container).toMatchSnapshot();
     });
+  });
+
+  it('reloads settings for the selected data source', async () => {
+    const mockSettingsResponse = {
+      response: {
+        persistent: {
+          search: {
+            insights: {
+              top_queries: {
+                latency: { enabled: 'true', top_n_size: '10', window_size: '1h' },
+                cpu: { enabled: 'true', top_n_size: '10', window_size: '1h' },
+                memory: { enabled: 'true', top_n_size: '10', window_size: '1h' },
+              },
+            },
+          },
+        },
+      },
+    };
+    (mockCore.http.get as jest.Mock).mockImplementation((endpoint) =>
+      Promise.resolve(
+        endpoint === '/api/settings' ? mockSettingsResponse : { response: { top_queries: [] } }
+      )
+    );
+
+    renderTopNQueries(QUERY_INSIGHTS);
+    expect(mockQueryInsightsProps).toBeDefined();
+
+    const dataSource = { id: 'next-source', label: 'Next source' };
+    window.history.replaceState(
+      {},
+      '',
+      `/?dataSource=${encodeURIComponent(JSON.stringify(dataSource))}`
+    );
+
+    await act(async () => {
+      await mockQueryInsightsProps!.onDataSourceChange();
+    });
+
+    expect(mockCore.http.get).toHaveBeenCalledWith('/api/settings', {
+      query: { dataSourceId: 'next-source' },
+    });
+    expect(getVersionOnce).toHaveBeenCalledWith('next-source');
   });
 
   it('fetches queries for all metrics in retrieveQueries', async () => {
@@ -588,6 +659,123 @@ describe('TopNQueries Component', () => {
   });
 
   describe('Error handling', () => {
+    it('shows an access-denied state without a toast for an HTTP 403', async () => {
+      const forbiddenError = {
+        response: { status: 403 },
+        body: {
+          message:
+            '[security_exception] no permissions for top queries and User [name=arn:aws:iam::123456789012:role/example]',
+        },
+      };
+      (mockCore.http.get as jest.Mock).mockImplementation((endpoint) => {
+        if (endpoint === '/api/top_queries/latency') return Promise.reject(forbiddenError);
+        return Promise.resolve({ response: { top_queries: [] } });
+      });
+
+      renderTopNQueries(QUERY_INSIGHTS);
+
+      await waitFor(() => {
+        expect(screen.getByText('Mocked access denied')).toBeInTheDocument();
+      });
+      expect(mockCore.notifications.toasts.addDanger).not.toHaveBeenCalled();
+    });
+
+    it('supports the legacy resolved security-exception response', async () => {
+      (mockCore.http.get as jest.Mock).mockImplementation((endpoint) => {
+        if (endpoint === '/api/top_queries/latency') {
+          return Promise.resolve({
+            ok: false,
+            response:
+              'Data Source Error: [security_exception] no permissions for top queries and User [name=example]',
+          });
+        }
+        return Promise.resolve({ response: { top_queries: [] } });
+      });
+
+      renderTopNQueries(QUERY_INSIGHTS);
+
+      await waitFor(() => {
+        expect(screen.getByText('Mocked access denied')).toBeInTheDocument();
+      });
+      expect(mockCore.notifications.toasts.addDanger).not.toHaveBeenCalled();
+    });
+
+    it('does not show access denied for an explicit authentication status', async () => {
+      const authenticationError = {
+        response: { status: 401 },
+        body: {
+          error: {
+            type: 'security_exception',
+          },
+          message: 'Authentication required',
+        },
+      };
+      (mockCore.http.get as jest.Mock).mockImplementation((endpoint) => {
+        if (endpoint === '/api/top_queries/latency') {
+          return Promise.reject(authenticationError);
+        }
+        return Promise.resolve({ response: { top_queries: [] } });
+      });
+
+      renderTopNQueries(QUERY_INSIGHTS);
+
+      await waitFor(() => {
+        expect(mockCore.notifications.toasts.addDanger).toHaveBeenCalled();
+      });
+      expect(screen.queryByText('Mocked access denied')).not.toBeInTheDocument();
+    });
+
+    it('ignores a stale forbidden response after a newer request succeeds', async () => {
+      const firstLatencyRequest = createDeferred<{
+        response: { top_queries: Array<{ id: string }> };
+      }>();
+      const forbiddenError = {
+        response: { status: 403 },
+        body: {
+          message: '[security_exception] no permissions for top queries',
+        },
+      };
+      let latencyRequestCount = 0;
+
+      (mockCore.http.get as jest.Mock).mockImplementation((endpoint) => {
+        if (endpoint === '/api/settings') {
+          return new Promise(() => undefined);
+        }
+        if (endpoint === '/api/top_queries/latency') {
+          latencyRequestCount += 1;
+          return latencyRequestCount === 1
+            ? firstLatencyRequest.promise
+            : Promise.resolve({ response: { top_queries: [{ id: 'new-result' }] } });
+        }
+        return Promise.resolve({ response: { top_queries: [] } });
+      });
+
+      renderTopNQueries(QUERY_INSIGHTS);
+
+      await waitFor(() => {
+        expect(latencyRequestCount).toBe(1);
+        expect(mockQueryInsightsProps).toBeDefined();
+      });
+
+      await act(async () => {
+        await mockQueryInsightsProps!.retrieveQueries('now-30m', 'now');
+      });
+
+      await waitFor(() => {
+        expect(mockQueryInsightsProps?.queries.map(({ id }) => id)).toContain('new-result');
+      });
+
+      await act(async () => {
+        firstLatencyRequest.reject(forbiddenError);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(mockQueryInsightsProps?.accessDenied).toBe(false);
+        expect(mockQueryInsightsProps?.queries.map(({ id }) => id)).toContain('new-result');
+      });
+    });
+
     it('show a danger toast when a top queries fails', async () => {
       const mockSettingsResponse = {
         response: {

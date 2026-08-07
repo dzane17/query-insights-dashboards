@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Redirect, Route, Switch, useHistory, useLocation } from 'react-router-dom';
 import { EuiTab, EuiTabs, EuiTitle, EuiSpacer } from '@elastic/eui';
 import { AppMountParameters, CoreStart } from 'opensearch-dashboards/public';
@@ -39,9 +39,11 @@ import {
   DEFAULT_WINDOW_SIZE,
   EXPORTER_TYPE,
   MetricType,
+  QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
 } from '../../../common/constants';
 
 import { parseDateString } from '../../../common/utils/DateUtils';
+import { isForbiddenError } from '../../../common/utils/ErrorUtils';
 import {
   getMergedMetricSettings,
   getMergedStringSettings,
@@ -179,6 +181,15 @@ const TopNQueries = ({
   };
 
   const [queries, setQueries] = useState<SearchQueryRecord[]>([]);
+  const [queryAccessDenied, setQueryAccessDenied] = useState(false);
+  const latestQueryRequestId = useRef(0);
+
+  useEffect(
+    () => () => {
+      latestQueryRequestId.current += 1;
+    },
+    []
+  );
 
   useEffect(() => {
     let isComponentUnmounted = false;
@@ -234,32 +245,52 @@ const TopNQueries = ({
   // TODO: refactor retrieveQueries and retrieveConfigInfo into a Util function
   const retrieveQueries = useCallback(
     async (start: string, end: string) => {
-      if (loading) return;
+      const requestId = ++latestQueryRequestId.current;
+      const requestDataSourceId = getDataSourceFromUrl().id;
       setLoading(true);
+      setQueryAccessDenied(false);
       const nullResponse = { response: { top_queries: [] } };
       const apiParams = {
         query: {
           from: parseDateString(start),
           to: parseDateString(end),
-          dataSourceId: getDataSourceFromUrl().id, // TODO: get this dynamically from the URL
+          dataSourceId: requestDataSourceId,
           verbose: false,
         },
       };
       const fetchMetric = async (endpoint: string) => {
         try {
           // TODO: #13 refactor the interface definitions for requests and responses
-          const response: { response: { top_queries: SearchQueryRecord[] } } = await core.http.get(
-            endpoint,
-            apiParams
-          );
+          const response: {
+            ok?: boolean;
+            response: { top_queries: SearchQueryRecord[] } | string;
+          } = await core.http.get(endpoint, apiParams);
+          if (isForbiddenError(response)) {
+            throw Object.assign(new Error(QUERY_INSIGHTS_ACCESS_DENIED_TITLE), {
+              statusCode: 403,
+            });
+          }
+          if (response?.ok === false) {
+            throw new Error(
+              typeof response.response === 'string'
+                ? response.response
+                : 'Failed to retrieve top queries'
+            );
+          }
+          const responseBody =
+            typeof response?.response === 'object' ? response.response : undefined;
           return {
             response: {
-              top_queries: Array.isArray(response?.response?.top_queries)
-                ? response.response.top_queries
-                : [],
+              top_queries: Array.isArray(responseBody?.top_queries) ? responseBody.top_queries : [],
             },
           };
         } catch (error) {
+          if (isForbiddenError(error)) {
+            throw error;
+          }
+          if (requestId !== latestQueryRequestId.current) {
+            return nullResponse;
+          }
           core.notifications.toasts.addDanger({
             title: 'Failed to retrieve top queries',
             text:
@@ -289,7 +320,7 @@ const TopNQueries = ({
           (query, index, self) => index === self.findIndex((q) => q.id === query.id)
         );
 
-        const version = await getVersionOnce(dataSourceId);
+        const version = await getVersionOnce(requestDataSourceId);
         const is219OSVersion = isVersion219(version);
 
         const fromTime = DateTime.fromISO(parseDateString(start));
@@ -303,11 +334,23 @@ const TopNQueries = ({
         const filteredQueries = is219OSVersion
           ? noDuplicates.filter(isWithinTimeWindow)
           : noDuplicates;
-        setQueries(filteredQueries);
+        if (requestId === latestQueryRequestId.current) {
+          setQueries(filteredQueries);
+        }
       } catch (error) {
+        if (requestId !== latestQueryRequestId.current) {
+          return;
+        }
+        if (isForbiddenError(error)) {
+          setQueries([]);
+          setQueryAccessDenied(true);
+          return;
+        }
         console.error('Error retrieving queries:', error);
       } finally {
-        setLoading(false);
+        if (requestId === latestQueryRequestId.current) {
+          setLoading(false);
+        }
       }
     },
     [latencySettings, cpuSettings, memorySettings, core]
@@ -330,9 +373,10 @@ const TopNQueries = ({
     ) => {
       if (get) {
         try {
+          const requestDataSourceId = getDataSourceFromUrl().id;
           // const resp = await core.http.get('/api/settings', {query: {dataSourceId: '738ffbd0-d8de-11ef-9d96-eff1abd421b8'}});
           const resp = await core.http.get('/api/settings', {
-            query: { dataSourceId: getDataSourceFromUrl().id },
+            query: { dataSourceId: requestDataSourceId },
           });
           const persistentSettings = resp?.response?.persistent?.search?.insights?.top_queries;
           const transientSettings = resp?.response?.transient?.search?.insights?.top_queries;
@@ -376,7 +420,7 @@ const TopNQueries = ({
               });
             }
           });
-          const version = await getVersionOnce(dataSourceId);
+          const version = await getVersionOnce(requestDataSourceId);
           const groupBy = getMergedStringSettings(
             getGroupBySettingsPath(version, persistentSettings),
             getGroupBySettingsPath(version, transientSettings),
@@ -465,6 +509,8 @@ const TopNQueries = ({
     },
     [core]
   );
+
+  const onDataSourceChange = useCallback(() => retrieveConfigInfo(true), [retrieveConfigInfo]);
 
   const onTimeChange = ({ start, end }: { start: string; end: string }) => {
     const usedRange = recentlyUsedRanges.filter(
@@ -574,7 +620,9 @@ const TopNQueries = ({
               depsStart={depsStart}
               params={params}
               retrieveQueries={retrieveQueries}
+              onDataSourceChange={onDataSourceChange}
               dataSourceManagement={dataSourceManagement}
+              accessDenied={queryAccessDenied}
             />
           </Route>
           <Route exact path={CONFIGURATION}>

@@ -23,6 +23,8 @@ import {
   EuiAccordion,
   EuiToolTip,
   EuiBadge,
+  EuiCallOut,
+  EuiButton,
 } from '@elastic/eui';
 import 'react-vis/dist/style.css';
 import ReactECharts from 'echarts-for-react';
@@ -45,6 +47,8 @@ import {
   TYPE,
   WLM_GROUP,
   CHART_COLORS,
+  QUERY_INSIGHTS_ACCESS_DENIED_DESCRIPTION,
+  QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
 } from '../../../common/constants';
 import { calculateMetric, calculateMetricNumber } from '../../../common/utils/MetricUtils';
 import { parseDateString } from '../../../common/utils/DateUtils';
@@ -101,7 +105,9 @@ const QueryInsights = ({
   depsStart,
   params,
   retrieveQueries,
+  onDataSourceChange,
   dataSourceManagement,
+  accessDenied = false,
 }: {
   queries: SearchQueryRecord[];
   loading: boolean;
@@ -112,8 +118,10 @@ const QueryInsights = ({
   core: CoreStart;
   params: AppMountParameters;
   dataSourceManagement?: DataSourceManagementPluginSetup;
-  retrieveQueries?: any;
+  retrieveQueries: (start: string, end: string) => Promise<void> | void;
+  onDataSourceChange: () => Promise<void> | void;
   depsStart: QueryInsightsDashboardsPluginStartDependencies;
+  accessDenied?: boolean;
 }) => {
   const history = useHistory();
   const location = useLocation();
@@ -238,36 +246,54 @@ const QueryInsights = ({
       console.warn('[QueryInsights] Failed to fetch workload groups', e);
     }
 
-    setWlmIdToNameMap(idToNameMap);
     return idToNameMap;
   }, [core.http, dataSource?.id, wlmAvailable, queryInsightWlmNavigationSupported]);
 
   useEffect(() => {
+    let cancelled = false;
+
     const checkWlmSupport = async () => {
       try {
         const version = await getVersionOnce(dataSource?.id || '');
+        if (cancelled) return;
+
         const versionSupported = isVersion33OrHigher(version);
         setQueryInsightWlmNavigationSupported(versionSupported);
         setStatusSupported(isVersion36OrHigher(version));
 
         if (versionSupported) {
           const hasWlm = await detectWlm();
-          setWlmAvailable(hasWlm);
+          if (!cancelled) setWlmAvailable(hasWlm);
         } else {
           setWlmAvailable(false);
         }
       } catch (_e) {
-        setQueryInsightWlmNavigationSupported(false);
-        setWlmAvailable(false);
+        if (!cancelled) {
+          setQueryInsightWlmNavigationSupported(false);
+          setStatusSupported(false);
+          setWlmAvailable(false);
+        }
       }
     };
 
     checkWlmSupport();
+
+    return () => {
+      cancelled = true;
+    };
   }, [detectWlm, dataSource?.id]);
 
   // Fetch workload groups on mount and data source change
   useEffect(() => {
-    fetchWorkloadGroups();
+    let cancelled = false;
+
+    fetchWorkloadGroups().then((idToNameMap) => {
+      if (!cancelled) setWlmIdToNameMap(idToNameMap);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [fetchWorkloadGroups]);
 
   const commonlyUsedRanges = [
@@ -823,6 +849,11 @@ const QueryInsights = ({
     retrieveQueries(start, end);
   };
 
+  const onSelectedDataSource = useCallback(() => {
+    onDataSourceChange();
+    retrieveQueries(currStart, currEnd);
+  }, [onDataSourceChange, retrieveQueries, currStart, currEnd]);
+
   const percentileMetrics = useMemo(() => {
     const latencies: number[] = [];
     const cpus: number[] = [];
@@ -1089,13 +1120,36 @@ const QueryInsights = ({
         setDataSource={setDataSource}
         selectedDataSource={dataSource}
         onManageDataSource={() => {}}
-        onSelectedDataSource={() => {
-          retrieveQueries(currStart, currEnd);
-        }}
+        onSelectedDataSource={onSelectedDataSource}
         dataSourcePickerReadOnly={false}
       />
 
-      {!loading && (
+      {accessDenied && (
+        <>
+          <EuiSpacer size="m" />
+          {/* eslint-disable-next-line @elastic/eui/callout-announce-on-mount -- This EUI version does not support announceOnMount. */}
+          <EuiCallOut
+            title={QUERY_INSIGHTS_ACCESS_DENIED_TITLE}
+            color="danger"
+            iconType="alert"
+            heading="h2"
+            role="alert"
+            data-test-subj="queryInsightsAccessDenied"
+          >
+            <p>{QUERY_INSIGHTS_ACCESS_DENIED_DESCRIPTION}</p>
+            <EuiButton
+              size="s"
+              color="danger"
+              iconType="refresh"
+              onClick={() => retrieveQueries(currStart, currEnd)}
+            >
+              Retry
+            </EuiButton>
+          </EuiCallOut>
+        </>
+      )}
+
+      {!accessDenied && !loading && (
         <>
           <EuiSpacer size="m" />
           <EuiFlexGroup alignItems="flexStart" gutterSize="m">

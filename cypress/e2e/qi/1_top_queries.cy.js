@@ -21,6 +21,28 @@ const makeTimestampedBody = (raw) => {
 
 const getRowsFromRaw = (raw) => (raw?.response?.top_queries ?? raw?.top_queries ?? []).slice();
 
+const interceptEnabledMetricSettings = () => {
+  cy.intercept('GET', '**/api/settings*', {
+    statusCode: 200,
+    body: {
+      ok: true,
+      response: {
+        persistent: {
+          search: {
+            insights: {
+              top_queries: {
+                latency: { enabled: 'true', top_n_size: '10', window_size: '1m' },
+                cpu: { enabled: 'true', top_n_size: '10', window_size: '1m' },
+                memory: { enabled: 'true', top_n_size: '10', window_size: '1m' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }).as('settings');
+};
+
 const assertRowCountEquals = (expected) => {
   // Target the main data table (last table on page), not the chart table
   cy.get('.euiBasicTable').last().find('.euiTableRow').should('have.length', expected);
@@ -256,6 +278,7 @@ describe('Query Insights — Dynamic Columns with Intercepted Top Queries (MIXED
   const totalRowCount = mixedRows.length;
 
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(MIXED) });
     }).as('topQueries');
@@ -362,6 +385,7 @@ describe('Query Insights — Dynamic Columns with Intercepted Top Queries (MIXED
 // ---- QUERY ONLY fixture (no Type toggle)
 describe('Query Insights — Dynamic Columns (QUERY ONLY fixture)', () => {
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(QUERY_ONLY) });
     }).as('topQueries');
@@ -390,6 +414,7 @@ describe('Query Insights — Dynamic Columns (QUERY ONLY fixture)', () => {
 // ---- GROUP ONLY fixture (no Type toggle)
 describe('Query Insights — Dynamic Columns (GROUP ONLY fixture)', () => {
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(GROUP_ONLY) });
     }).as('topQueries');
@@ -420,6 +445,7 @@ describe('Query Insights — Dynamic Columns (GROUP ONLY fixture)', () => {
 
 describe('Query Insights — Stats & Visualizations Panel', () => {
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(MIXED) });
     }).as('topQueries');
@@ -592,6 +618,7 @@ describe('Query Insights — DynamicSearchBar', () => {
   const SEARCH_PLACEHOLDER = 'e.g. latency >= 100 AND type = query';
 
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(MIXED) });
     }).as('topQueries');
@@ -694,6 +721,7 @@ describe('Query Insights — DynamicSearchBar', () => {
 
 describe('Query Insights — Column Visibility', () => {
   beforeEach(() => {
+    interceptEnabledMetricSettings();
     cy.intercept('GET', '**/api/top_queries/**', (req) => {
       req.reply({ statusCode: 200, body: makeTimestampedBody(MIXED) });
     }).as('topQueries');

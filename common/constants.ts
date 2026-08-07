@@ -75,6 +75,11 @@ export const DEFAULT_REFRESH_INTERVAL = 30000; // default 30s
 export const NANOSECONDS_TO_SECONDS = 1e9;
 export const TOP_N_DISPLAY_LIMIT = 9;
 export const DEFAULT_SHOW_LIVE_QUERIES_ON_ERROR = false;
+export const QUERY_INSIGHTS_ACCESS_DENIED_TITLE =
+  "You don't have permission to view Query Insights data.";
+export const QUERY_INSIGHTS_ACCESS_DENIED_DESCRIPTION =
+  'Ask your administrator to grant the required Query Insights read permission.';
+export const QUERY_INSIGHTS_REQUEST_FAILED_MESSAGE = 'Unable to retrieve Query Insights data.';
 export const WLM_GROUP_ID_PARAM = 'wlmGroupId';
 export const ALL_WORKLOAD_GROUPS_TEXT = 'All workload groups';
 export const DEFAULT_WORKLOAD_GROUP = 'DEFAULT_WORKLOAD_GROUP';

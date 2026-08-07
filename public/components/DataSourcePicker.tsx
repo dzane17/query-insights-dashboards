@@ -74,7 +74,8 @@ export const DataSourceMenu = React.memo(
   },
   (prevProps, newProps) =>
     prevProps.selectedDataSource.id === newProps.selectedDataSource.id &&
-    prevProps.dataSourcePickerReadOnly === newProps.dataSourcePickerReadOnly
+    prevProps.dataSourcePickerReadOnly === newProps.dataSourcePickerReadOnly &&
+    prevProps.onSelectedDataSource === newProps.onSelectedDataSource
 );
 
 // Use the same component for both Query Insights and WLM
