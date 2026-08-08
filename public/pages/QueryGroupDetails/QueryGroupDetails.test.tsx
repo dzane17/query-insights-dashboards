@@ -108,6 +108,26 @@ describe('QueryGroupDetails', () => {
     expect(screen.getByText('Latency')).toBeInTheDocument();
   });
 
+  it('shows an access-denied message instead of query group details for a forbidden response', async () => {
+    (retrieveQueryById as jest.Mock).mockRejectedValue({
+      statusCode: 403,
+      body: { message: '[security_exception] no permissions for top queries' },
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', {
+          level: 2,
+          name: "You don't have permission to view Query Insights data.",
+        })
+      ).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Sample query details')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Latency' })).not.toBeInTheDocument();
+  });
+
   it('renders latency bar chart', async () => {
     renderComponent();
 

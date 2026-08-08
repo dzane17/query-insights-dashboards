@@ -23,8 +23,6 @@ import {
   EuiAccordion,
   EuiToolTip,
   EuiBadge,
-  EuiCallOut,
-  EuiButton,
 } from '@elastic/eui';
 import 'react-vis/dist/style.css';
 import ReactECharts from 'echarts-for-react';
@@ -47,8 +45,6 @@ import {
   TYPE,
   WLM_GROUP,
   CHART_COLORS,
-  QUERY_INSIGHTS_ACCESS_DENIED_DESCRIPTION,
-  QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
 } from '../../../common/constants';
 import { calculateMetric, calculateMetricNumber } from '../../../common/utils/MetricUtils';
 import { parseDateString } from '../../../common/utils/DateUtils';
@@ -75,6 +71,7 @@ import {
 import { DEFAULT_WORKLOAD_GROUP } from '../../../common/constants';
 import { useColumnVisibility, ColumnDef } from '../../hooks/useColumnVisibility';
 import { ColumnVisibilityPopover } from '../../components/ColumnVisibilityPopover';
+import { QueryInsightsAccessDenied } from '../../components/QueryInsightsAccessDenied';
 
 // --- constants for field names and defaults ---
 const TIMESTAMP_FIELD = 'timestamp';
@@ -1127,25 +1124,7 @@ const QueryInsights = ({
       {accessDenied && (
         <>
           <EuiSpacer size="m" />
-          {/* eslint-disable-next-line @elastic/eui/callout-announce-on-mount -- This EUI version does not support announceOnMount. */}
-          <EuiCallOut
-            title={QUERY_INSIGHTS_ACCESS_DENIED_TITLE}
-            color="danger"
-            iconType="alert"
-            heading="h2"
-            role="alert"
-            data-test-subj="queryInsightsAccessDenied"
-          >
-            <p>{QUERY_INSIGHTS_ACCESS_DENIED_DESCRIPTION}</p>
-            <EuiButton
-              size="s"
-              color="danger"
-              iconType="refresh"
-              onClick={() => retrieveQueries(currStart, currEnd)}
-            >
-              Retry
-            </EuiButton>
-          </EuiCallOut>
+          <QueryInsightsAccessDenied />
         </>
       )}
 

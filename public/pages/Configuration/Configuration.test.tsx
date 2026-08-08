@@ -6,7 +6,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import Configuration from './Configuration';
 import { DataSourceContext } from '../TopNQueries/TopNQueries';
 import { TIME_UNITS_TEXT, EXPORTER_TYPE } from '../../../common/constants';
@@ -25,6 +25,12 @@ const mockCoreStart = {
   },
   http: {
     get: jest.fn().mockResolvedValue({ ok: true, response: {} }),
+  },
+  notifications: {
+    toasts: {
+      addSuccess: jest.fn(),
+      addDanger: jest.fn(),
+    },
   },
 };
 
@@ -74,16 +80,30 @@ const mockDataSourceContext = {
   setDataSource: jest.fn(),
 };
 
-const renderConfiguration = (overrides = {}) =>
+let currentLocationPath = '';
+const LocationDisplay = () => {
+  const location = useLocation();
+  currentLocationPath = location.pathname;
+  return null;
+};
+
+const renderConfiguration = ({
+  configurationLoadState = 'ready',
+  configInfo = mockConfigInfo,
+}: {
+  configurationLoadState?: 'loading' | 'ready' | 'accessDenied' | 'error';
+  configInfo?: typeof mockConfigInfo;
+} = {}) =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/configuration']}>
       <DataSourceContext.Provider value={mockDataSourceContext}>
         <Configuration
-          latencySettings={{ ...defaultLatencySettings, ...overrides }}
+          latencySettings={defaultLatencySettings}
           cpuSettings={defaultCpuSettings}
           memorySettings={defaultMemorySettings}
           groupBySettings={groupBySettings}
-          configInfo={mockConfigInfo}
+          configInfo={configInfo}
+          configurationLoadState={configurationLoadState}
           dataRetentionSettings={dataRetentionSettings}
           remoteExporterSettings={remoteExporterSettings}
           core={mockCoreStart}
@@ -91,6 +111,7 @@ const renderConfiguration = (overrides = {}) =>
           params={{} as any}
           dataSourceManagement={dataSourceManagementMock}
         />
+        <LocationDisplay />
       </DataSourceContext.Provider>
     </MemoryRouter>
   );
@@ -105,6 +126,8 @@ const getEnableToggle = () => {
 describe('Configuration Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockConfigInfo.mockResolvedValue(undefined);
+    currentLocationPath = '';
   });
 
   it('renders with default settings', () => {
@@ -141,7 +164,7 @@ describe('Configuration Component', () => {
     expect(screen.queryByText('Save')).not.toBeInTheDocument();
   });
 
-  it('calls configInfo and navigates on Save button click', async () => {
+  it('waits for configInfo and stays on Configuration after saving', async () => {
     renderConfiguration();
     fireEvent.change(getTopNSizeConfiguration()[0], { target: { value: '7' } });
     fireEvent.click(screen.getByText('Save'));
@@ -161,6 +184,49 @@ describe('Configuration Component', () => {
         'query-insights'
       );
     });
+    expect(mockCoreStart.notifications.toasts.addSuccess).toHaveBeenCalledWith(
+      'Saved Query Insights settings.'
+    );
+    expect(currentLocationPath).toBe('/configuration');
+  });
+
+  it('keeps unsaved values and shows a permission error when saving is forbidden', async () => {
+    const forbiddenConfigInfo = jest.fn().mockRejectedValue({
+      statusCode: 403,
+      body: {
+        message: '[security_exception] no permissions for cluster settings',
+      },
+    });
+    renderConfiguration({ configInfo: forbiddenConfigInfo });
+
+    fireEvent.change(getTopNSizeConfiguration()[0], { target: { value: '7' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() => {
+      expect(mockCoreStart.notifications.toasts.addDanger).toHaveBeenCalledWith({
+        title: "You don't have permission to update Query Insights settings.",
+        text: 'Ask your administrator to grant the required cluster settings update permission.',
+      });
+    });
+    expect(getTopNSizeConfiguration()[0]).toHaveValue(7);
+    expect(currentLocationPath).toBe('/configuration');
+    expect(mockCoreStart.notifications.toasts.addSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows an access-denied message instead of editable defaults when settings cannot be read', () => {
+    renderConfiguration({ configurationLoadState: 'accessDenied' });
+
+    expect(
+      screen.getByRole('heading', {
+        level: 2,
+        name: "You don't have permission to view Query Insights settings.",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Top n queries monitoring configuration settings')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(mockCoreStart.http.get).not.toHaveBeenCalled();
   });
 
   it('resets state on Cancel button click', async () => {
@@ -469,6 +535,7 @@ describe('Configuration Component', () => {
               memorySettings={defaultMemorySettings}
               groupBySettings={groupBySettings}
               configInfo={mockConfigInfo}
+              configurationLoadState="ready"
               dataRetentionSettings={dataRetentionSettings}
               remoteExporterSettings={{ enabled: true, repository: 'my-repo', path: 'insights' }}
               core={mockCoreStart}
@@ -614,6 +681,7 @@ describe('Configuration Component', () => {
               memorySettings={defaultMemorySettings}
               groupBySettings={groupBySettings}
               configInfo={mockConfigInfo}
+              configurationLoadState="ready"
               dataRetentionSettings={dataRetentionSettings}
               remoteExporterSettings={{ enabled: true, repository: 'my-repo', path: 'insights' }}
               core={mockCoreStart}

@@ -33,6 +33,7 @@ import { AppMountParameters, CoreStart } from 'opensearch-dashboards/public';
 import { DataSourceManagementPluginSetup } from 'src/plugins/data_source_management/public';
 import {
   QUERY_INSIGHTS,
+  ConfigurationLoadState,
   MetricSettings,
   GroupBySettings,
   DataSourceContext,
@@ -47,11 +48,34 @@ import {
   EXPORTER_TYPES_LIST,
   EXPORTER_TYPE,
   REMOTE_REPOSITORY_REGISTRATION_CONFIG,
+  QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_DESCRIPTION,
+  QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_REQUEST_FAILED_MESSAGE,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_DESCRIPTION,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_FAILED_MESSAGE,
 } from '../../../common/constants';
 import { QueryInsightsDataSourceMenu } from '../../components/DataSourcePicker';
 import { QueryInsightsDashboardsPluginStartDependencies } from '../../types';
 import { validateConfiguration } from './configurationValidation';
 import RegisterRepositoryFlyout from './Components/RegisterRepositoryFlyout';
+import { QueryInsightsAccessDenied } from '../../components/QueryInsightsAccessDenied';
+import { getErrorMessage, isForbiddenError } from '../../../common/utils/ErrorUtils';
+
+type ConfigInfo = (
+  get: boolean,
+  enabled?: boolean,
+  metric?: string,
+  newTopN?: string,
+  newWindowSize?: string,
+  newTimeUnit?: string,
+  newExporterType?: string,
+  newGroupBy?: string,
+  newDeleteAfterDays?: string,
+  newRemoteEnabled?: boolean,
+  newRemoteRepository?: string,
+  newRemotePath?: string
+) => Promise<void>;
 
 const Configuration = ({
   latencySettings,
@@ -61,6 +85,7 @@ const Configuration = ({
   dataRetentionSettings,
   remoteExporterSettings,
   configInfo,
+  configurationLoadState,
   core,
   depsStart,
   params,
@@ -72,7 +97,8 @@ const Configuration = ({
   groupBySettings: GroupBySettings;
   dataRetentionSettings: DataRetentionSettings;
   remoteExporterSettings: RemoteExporterSettings;
-  configInfo: any;
+  configInfo: ConfigInfo;
+  configurationLoadState: ConfigurationLoadState;
   core: CoreStart;
   params: AppMountParameters;
   dataSourceManagement?: DataSourceManagementPluginSetup;
@@ -98,6 +124,7 @@ const Configuration = ({
   const [repoOptions, setRepoOptions] = useState<Array<{ label: string }>>([]);
   const [isS3PluginInstalled, setIsS3PluginInstalled] = useState<boolean | null>(null);
   const [isCheckingPlugin, setIsCheckingPlugin] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const checkS3Plugin = useCallback(async () => {
     setIsCheckingPlugin(true);
@@ -137,11 +164,14 @@ const Configuration = ({
   }, [core.http, dataSource]);
 
   useEffect(() => {
+    if (configurationLoadState !== 'ready') {
+      return;
+    }
     fetchRepositories();
     if (remoteExporterSettings.enabled) {
       checkS3Plugin();
     }
-  }, [fetchRepositories, checkS3Plugin, remoteExporterSettings.enabled]);
+  }, [fetchRepositories, checkS3Plugin, remoteExporterSettings.enabled, configurationLoadState]);
 
   const [metricSettingsMap, setMetricSettingsMap] = useState({
     latency: latencySettings,
@@ -317,25 +347,102 @@ const Configuration = ({
     ) &&
     (!remoteEnabled || isS3PluginInstalled !== false);
 
+  const saveConfiguration = async () => {
+    setIsSaving(true);
+    try {
+      await configInfo(
+        false,
+        isEnabled,
+        metric,
+        topNSize,
+        windowSize,
+        time,
+        exporterType,
+        groupBy,
+        deleteAfterDays,
+        remoteEnabled,
+        remoteRepository,
+        remotePath
+      );
+      core.notifications.toasts.addSuccess('Saved Query Insights settings.');
+    } catch (error) {
+      if (isForbiddenError(error)) {
+        core.notifications.toasts.addDanger({
+          title: QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE,
+          text: QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_DESCRIPTION,
+        });
+      } else {
+        core.notifications.toasts.addDanger({
+          title: QUERY_INSIGHTS_SETTINGS_UPDATE_FAILED_MESSAGE,
+          text: getErrorMessage(error) ?? 'Refresh the page and try again.',
+        });
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const formRowPadding = { padding: '0px 0px 20px' };
   const enabledSymb = <EuiHealth color="primary">Enabled</EuiHealth>;
   const disabledSymb = <EuiHealth color="default">Disabled</EuiHealth>;
 
+  const dataSourceMenu = (
+    <QueryInsightsDataSourceMenu
+      coreStart={core}
+      depsStart={depsStart}
+      params={params}
+      dataSourceManagement={dataSourceManagement}
+      setDataSource={setDataSource}
+      selectedDataSource={dataSource}
+      onManageDataSource={() => {}}
+      onSelectedDataSource={() => {
+        void configInfo(true);
+      }}
+      dataSourcePickerReadOnly={false}
+    />
+  );
+
+  if (configurationLoadState !== 'ready') {
+    return (
+      <div>
+        {dataSourceMenu}
+        <EuiSpacer size="m" />
+        {configurationLoadState === 'loading' && (
+          <EuiFlexGroup justifyContent="center" alignItems="center" gutterSize="s" role="status">
+            <EuiFlexItem grow={false}>
+              <EuiLoadingSpinner size="xl" />
+            </EuiFlexItem>
+            <EuiFlexItem grow={false}>
+              <EuiText>Loading Query Insights settings.</EuiText>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        )}
+        {configurationLoadState === 'accessDenied' && (
+          <QueryInsightsAccessDenied
+            title={QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE}
+            description={QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_DESCRIPTION}
+            dataTestSubj="queryInsightsSettingsAccessDenied"
+          />
+        )}
+        {configurationLoadState === 'error' && (
+          <EuiCallOut
+            title={QUERY_INSIGHTS_SETTINGS_REQUEST_FAILED_MESSAGE}
+            color="danger"
+            iconType="alert"
+            heading="h2"
+            role="alert"
+            data-test-subj="queryInsightsSettingsError"
+          >
+            <p>Refresh the page. If the problem continues, contact your administrator.</p>
+          </EuiCallOut>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
-      <QueryInsightsDataSourceMenu
-        coreStart={core}
-        depsStart={depsStart}
-        params={params}
-        dataSourceManagement={dataSourceManagement}
-        setDataSource={setDataSource}
-        selectedDataSource={dataSource}
-        onManageDataSource={() => {}}
-        onSelectedDataSource={() => {
-          configInfo(true);
-        }}
-        dataSourcePickerReadOnly={false}
-      />
+      {dataSourceMenu}
       <EuiFlexGroup>
         <EuiFlexItem grow={6}>
           <EuiPanel paddingSize="m">
@@ -861,23 +968,8 @@ const Configuration = ({
                 fill
                 size="s"
                 iconType="check"
-                onClick={() => {
-                  configInfo(
-                    false,
-                    isEnabled,
-                    metric,
-                    topNSize,
-                    windowSize,
-                    time,
-                    exporterType,
-                    groupBy,
-                    deleteAfterDays,
-                    remoteEnabled,
-                    remoteRepository,
-                    remotePath
-                  );
-                  return history.push(QUERY_INSIGHTS);
-                }}
+                isLoading={isSaving}
+                onClick={saveConfiguration}
               >
                 Save
               </EuiButton>

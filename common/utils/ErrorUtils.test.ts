@@ -54,6 +54,15 @@ describe('ErrorUtils', () => {
     expect(isSecurityExceptionError({ type: 'security_exception' })).toBe(true);
   });
 
+  it('recognizes a security exception in a top-level error string', () => {
+    expect(
+      isForbiddenError({
+        ok: false,
+        error: '[security_exception] no permissions for live queries',
+      })
+    ).toBe(true);
+  });
+
   it('recognizes the legacy data source failure envelope', () => {
     expect(
       isForbiddenError({

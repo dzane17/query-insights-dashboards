@@ -21,6 +21,16 @@ interface MockQueryInsightsProps {
 
 let mockQueryInsightsProps: MockQueryInsightsProps | undefined;
 
+interface MockConfigurationProps {
+  configurationLoadState: 'loading' | 'ready' | 'accessDenied' | 'error';
+  configInfo: (...args: any[]) => Promise<void>;
+  latencySettings: {
+    currTopN: string;
+  };
+}
+
+let mockConfigurationProps: MockConfigurationProps | undefined;
+
 jest.mock('../QueryInsights/QueryInsights', () => (props: MockQueryInsightsProps) => {
   mockQueryInsightsProps = props;
   return (
@@ -30,7 +40,17 @@ jest.mock('../QueryInsights/QueryInsights', () => (props: MockQueryInsightsProps
     </div>
   );
 });
-jest.mock('../Configuration/Configuration', () => () => <div>Mocked Configuration</div>);
+jest.mock('../Configuration/Configuration', () => (props: MockConfigurationProps) => {
+  mockConfigurationProps = props;
+  return (
+    <div>
+      Mocked Configuration
+      {props.configurationLoadState === 'accessDenied' && (
+        <span>Mocked settings access denied</span>
+      )}
+    </div>
+  );
+});
 jest.mock('../QueryDetails/QueryDetails', () => () => <div>Mocked QueryDetails</div>);
 jest.mock('../../utils/version-utils');
 
@@ -107,6 +127,7 @@ describe('TopNQueries Component', () => {
     jest.clearAllMocks();
     window.history.replaceState({}, '', '/');
     mockQueryInsightsProps = undefined;
+    mockConfigurationProps = undefined;
     (getVersionOnce as jest.Mock).mockResolvedValue('3.1.0');
   });
 
@@ -150,6 +171,155 @@ describe('TopNQueries Component', () => {
       expect(screen.getByText('Mocked Configuration')).toBeInTheDocument();
       expect(container).toMatchSnapshot();
     });
+  });
+
+  it('marks Configuration access denied when the settings request returns 403', async () => {
+    const forbiddenError = {
+      statusCode: 403,
+      body: {
+        message: '[security_exception] no permissions for cluster settings',
+      },
+    };
+    (mockCore.http.get as jest.Mock).mockImplementation((endpoint) => {
+      if (endpoint === '/api/settings') {
+        return Promise.reject(forbiddenError);
+      }
+      return Promise.resolve({ response: { top_queries: [] } });
+    });
+
+    renderTopNQueries(CONFIGURATION);
+
+    await waitFor(() => {
+      expect(screen.getByText('Mocked settings access denied')).toBeInTheDocument();
+    });
+    expect(mockConfigurationProps?.configurationLoadState).toBe('accessDenied');
+  });
+
+  it('does not update configuration state until the settings PUT succeeds', async () => {
+    const settingsResponse = {
+      response: {
+        persistent: {
+          search: {
+            insights: {
+              top_queries: {
+                latency: { enabled: 'true', top_n_size: '10', window_size: '1h' },
+                cpu: { enabled: 'false' },
+                memory: { enabled: 'false' },
+              },
+            },
+          },
+        },
+      },
+    };
+    const updateRequest = createDeferred<{ ok: boolean }>();
+    (mockCore.http.get as jest.Mock).mockImplementation((endpoint) =>
+      Promise.resolve(
+        endpoint === '/api/settings' ? settingsResponse : { response: { top_queries: [] } }
+      )
+    );
+    (mockCore.http.put as jest.Mock).mockReturnValue(updateRequest.promise);
+
+    renderTopNQueries(CONFIGURATION);
+    await waitFor(() => expect(mockConfigurationProps?.configurationLoadState).toBe('ready'));
+    expect(mockConfigurationProps?.latencySettings.currTopN).toBe('10');
+
+    let savePromise: Promise<void>;
+    await act(async () => {
+      savePromise = mockConfigurationProps!.configInfo(
+        false,
+        true,
+        'latency',
+        '7',
+        '10',
+        'MINUTES',
+        'local_index',
+        'SIMILARITY',
+        '179',
+        false,
+        '',
+        'query-insights'
+      );
+      await Promise.resolve();
+    });
+
+    expect(mockConfigurationProps?.latencySettings.currTopN).toBe('10');
+
+    await act(async () => {
+      updateRequest.resolve({ ok: true });
+      await savePromise!;
+    });
+
+    await waitFor(() => expect(mockConfigurationProps?.latencySettings.currTopN).toBe('7'));
+  });
+
+  it('does not apply a completed settings update to a newly selected data source', async () => {
+    const settingsResponse = (topNSize: string) => ({
+      response: {
+        persistent: {
+          search: {
+            insights: {
+              top_queries: {
+                latency: { enabled: 'true', top_n_size: topNSize, window_size: '1h' },
+                cpu: { enabled: 'false' },
+                memory: { enabled: 'false' },
+              },
+            },
+          },
+        },
+      },
+    });
+    const updateRequest = createDeferred<{ ok: boolean }>();
+    (mockCore.http.get as jest.Mock).mockImplementation((endpoint, options) => {
+      if (endpoint === '/api/settings') {
+        return Promise.resolve(
+          settingsResponse(options.query.dataSourceId === 'source-b' ? '20' : '10')
+        );
+      }
+      return Promise.resolve({ response: { top_queries: [] } });
+    });
+    (mockCore.http.put as jest.Mock).mockReturnValue(updateRequest.promise);
+    window.history.replaceState(
+      {},
+      '',
+      `/?dataSource=${encodeURIComponent(
+        JSON.stringify({ id: 'source-a', label: 'Source A' })
+      )}`
+    );
+
+    renderTopNQueries(CONFIGURATION);
+    await waitFor(() => expect(mockConfigurationProps?.latencySettings.currTopN).toBe('10'));
+
+    let savePromise: Promise<void>;
+    await act(async () => {
+      savePromise = mockConfigurationProps!.configInfo(
+        false,
+        true,
+        'latency',
+        '7',
+        '10',
+        'MINUTES'
+      );
+      await Promise.resolve();
+    });
+
+    window.history.replaceState(
+      {},
+      '',
+      `/?dataSource=${encodeURIComponent(
+        JSON.stringify({ id: 'source-b', label: 'Source B' })
+      )}`
+    );
+    await act(async () => {
+      await mockConfigurationProps!.configInfo(true);
+    });
+    await waitFor(() => expect(mockConfigurationProps?.latencySettings.currTopN).toBe('20'));
+
+    await act(async () => {
+      updateRequest.resolve({ ok: true });
+      await savePromise!;
+    });
+
+    expect(mockConfigurationProps?.latencySettings.currTopN).toBe('20');
   });
 
   it('reloads settings for the selected data source', async () => {

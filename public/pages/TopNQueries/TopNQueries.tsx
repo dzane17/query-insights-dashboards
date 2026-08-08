@@ -40,10 +40,18 @@ import {
   EXPORTER_TYPE,
   MetricType,
   QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_REQUEST_FAILED_MESSAGE,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_FAILED_MESSAGE,
 } from '../../../common/constants';
 
 import { parseDateString } from '../../../common/utils/DateUtils';
-import { isForbiddenError } from '../../../common/utils/ErrorUtils';
+import {
+  getErrorMessage,
+  isFailedResponse,
+  isForbiddenError,
+} from '../../../common/utils/ErrorUtils';
 import {
   getMergedMetricSettings,
   getMergedStringSettings,
@@ -77,6 +85,8 @@ export interface RemoteExporterSettings {
   repository: string;
   path: string;
 }
+
+export type ConfigurationLoadState = 'loading' | 'ready' | 'accessDenied' | 'error';
 
 export interface DataSourceContextType {
   dataSource: DataSourceOption;
@@ -182,11 +192,16 @@ const TopNQueries = ({
 
   const [queries, setQueries] = useState<SearchQueryRecord[]>([]);
   const [queryAccessDenied, setQueryAccessDenied] = useState(false);
+  const [configurationLoadState, setConfigurationLoadState] = useState<ConfigurationLoadState>(
+    'loading'
+  );
   const latestQueryRequestId = useRef(0);
+  const latestConfigRequestId = useRef(0);
 
   useEffect(
     () => () => {
       latestQueryRequestId.current += 1;
+      latestConfigRequestId.current += 1;
     },
     []
   );
@@ -372,12 +387,24 @@ const TopNQueries = ({
       newRemotePath: string = ''
     ) => {
       if (get) {
+        const requestId = ++latestConfigRequestId.current;
+        setConfigurationLoadState('loading');
         try {
           const requestDataSourceId = getDataSourceFromUrl().id;
           // const resp = await core.http.get('/api/settings', {query: {dataSourceId: '738ffbd0-d8de-11ef-9d96-eff1abd421b8'}});
           const resp = await core.http.get('/api/settings', {
             query: { dataSourceId: requestDataSourceId },
           });
+          if (isForbiddenError(resp)) {
+            throw Object.assign(new Error(QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE), {
+              statusCode: 403,
+            });
+          }
+          if (isFailedResponse(resp)) {
+            throw new Error(
+              getErrorMessage(resp) ?? QUERY_INSIGHTS_SETTINGS_REQUEST_FAILED_MESSAGE
+            );
+          }
           const persistentSettings = resp?.response?.persistent?.search?.insights?.top_queries;
           const transientSettings = resp?.response?.transient?.search?.insights?.top_queries;
           const metrics = [
@@ -404,21 +431,24 @@ const TopNQueries = ({
             },
           ];
 
-          // Process each metric
-          metrics.forEach(({ metricType, metricSetting }) => {
+          const metricUpdates = metrics.map(({ metricType, metricSetting }) => {
             if (metricSetting?.enabled === 'false') {
-              setMetricSettings(metricType, {
-                isEnabled: false,
-              });
-            } else {
-              const [time, timeUnits] = getTimeAndUnitFromString(metricSetting.window_size);
-              setMetricSettings(metricType, {
+              return {
+                metricType,
+                updates: { isEnabled: false },
+              };
+            }
+
+            const [time, timeUnits] = getTimeAndUnitFromString(metricSetting.window_size);
+            return {
+              metricType,
+              updates: {
                 isEnabled: true,
                 currTopN: metricSetting.top_n_size ?? DEFAULT_TOP_N_SIZE,
                 currWindowSize: time,
                 currTimeUnit: timeUnits,
-              });
-            }
+              },
+            };
           });
           const version = await getVersionOnce(requestDataSourceId);
           const groupBy = getMergedStringSettings(
@@ -426,7 +456,6 @@ const TopNQueries = ({
             getGroupBySettingsPath(version, transientSettings),
             DEFAULT_GROUP_BY
           );
-          setGroupBySettings({ groupBy });
 
           const deleteAfterDays = getMergedStringSettings(
             persistentSettings?.exporter?.delete_after_days,
@@ -438,7 +467,6 @@ const TopNQueries = ({
             transientSettings?.exporter?.type,
             DEFAULT_EXPORTER_TYPE
           );
-          setDataRetentionSettings({ deleteAfterDays, exporterType });
 
           const remoteEnabled =
             persistentSettings?.exporter?.remote?.enabled === 'true' ||
@@ -453,58 +481,84 @@ const TopNQueries = ({
             transientSettings?.exporter?.remote?.path,
             DEFAULT_REMOTE_EXPORTER_PATH
           );
+
+          if (requestId !== latestConfigRequestId.current) {
+            return;
+          }
+
+          metricUpdates.forEach(({ metricType, updates }) => {
+            setMetricSettings(metricType, updates);
+          });
+          setGroupBySettings({ groupBy });
+          setDataRetentionSettings({ deleteAfterDays, exporterType });
           setRemoteExporterSettings({
             enabled: remoteEnabled,
             repository: remoteRepository,
             path: remotePath,
           });
+          setConfigurationLoadState('ready');
         } catch (error) {
-          console.error('Failed to retrieve settings:', error);
+          if (requestId !== latestConfigRequestId.current) {
+            return;
+          }
+          if (isForbiddenError(error)) {
+            setConfigurationLoadState('accessDenied');
+          } else {
+            setConfigurationLoadState('error');
+          }
         }
       } else {
-        try {
-          setMetricSettings(metric, {
-            isEnabled: enabled,
-            currTopN: newTopN,
-            currWindowSize: newWindowSize,
-            currTimeUnit: newTimeUnit,
-          });
-          setGroupBySettings({ groupBy: newGroupBy });
-          setDataRetentionSettings({
-            deleteAfterDays: newDeleteAfterDays,
-            exporterType: newExporterType,
-          });
-          setRemoteExporterSettings({
-            enabled: newRemoteEnabled,
-            repository: newRemoteRepository,
-            path: newRemotePath,
-          });
-          const queryParams: Record<string, any> = {
-            metric,
-            enabled,
-            top_n_size: newTopN,
-            exporterType: newExporterType,
-            group_by: newGroupBy,
-            delete_after_days: newDeleteAfterDays,
-            remote_enabled: newRemoteEnabled,
-            remote_repository: newRemoteRepository,
-            remote_path: newRemotePath,
-            dataSourceId: getDataSourceFromUrl().id,
-          };
-          if (newTimeUnit === 'MINUTES') {
-            newTimeUnit = 'm';
-          }
-          if (newTimeUnit === 'HOURS') {
-            newTimeUnit = 'h';
-          }
-          if (newWindowSize && newTimeUnit) {
-            queryParams.window_size = `${newWindowSize}${newTimeUnit}`;
-          }
-
-          await core.http.put('/api/update_settings', { query: queryParams });
-        } catch (error) {
-          console.error('Failed to set settings:', error);
+        const requestDataSourceId = getDataSourceFromUrl().id;
+        const queryParams: Record<string, any> = {
+          metric,
+          enabled,
+          top_n_size: newTopN,
+          exporterType: newExporterType,
+          group_by: newGroupBy,
+          delete_after_days: newDeleteAfterDays,
+          remote_enabled: newRemoteEnabled,
+          remote_repository: newRemoteRepository,
+          remote_path: newRemotePath,
+          dataSourceId: requestDataSourceId,
+        };
+        const normalizedTimeUnit =
+          newTimeUnit === 'MINUTES' ? 'm' : newTimeUnit === 'HOURS' ? 'h' : newTimeUnit;
+        if (newWindowSize && normalizedTimeUnit) {
+          queryParams.window_size = `${newWindowSize}${normalizedTimeUnit}`;
         }
+
+        const response = await core.http.put('/api/update_settings', { query: queryParams });
+        if (isForbiddenError(response)) {
+          throw Object.assign(new Error(QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE), {
+            statusCode: 403,
+          });
+        }
+        if (isFailedResponse(response)) {
+          throw new Error(
+            getErrorMessage(response) ?? QUERY_INSIGHTS_SETTINGS_UPDATE_FAILED_MESSAGE
+          );
+        }
+
+        if (requestDataSourceId !== getDataSourceFromUrl().id) {
+          return;
+        }
+
+        setMetricSettings(metric, {
+          isEnabled: enabled,
+          currTopN: newTopN,
+          currWindowSize: newWindowSize,
+          currTimeUnit: newTimeUnit,
+        });
+        setGroupBySettings({ groupBy: newGroupBy });
+        setDataRetentionSettings({
+          deleteAfterDays: newDeleteAfterDays,
+          exporterType: newExporterType,
+        });
+        setRemoteExporterSettings({
+          enabled: newRemoteEnabled,
+          repository: newRemoteRepository,
+          path: newRemotePath,
+        });
       }
     },
     [core]
@@ -649,6 +703,7 @@ const TopNQueries = ({
               dataRetentionSettings={dataRetentionSettings}
               remoteExporterSettings={remoteExporterSettings}
               configInfo={retrieveConfigInfo}
+              configurationLoadState={configurationLoadState}
               core={core}
               depsStart={depsStart}
               params={params}

@@ -170,9 +170,7 @@ describe('QueryInsights Component', () => {
     expect(
       screen.queryByPlaceholderText('e.g. latency >= 100 AND type = query')
     ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(mockRetrieveQueries).toHaveBeenCalledWith('now-15m', 'now');
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
   });
 
   it('reloads settings and queries when the data source changes', () => {

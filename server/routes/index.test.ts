@@ -7,6 +7,8 @@ import { IRouter, Logger } from '../../../../src/core/server';
 import {
   QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
   QUERY_INSIGHTS_REQUEST_FAILED_MESSAGE,
+  QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE,
+  QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE,
 } from '../../common/constants';
 import { defineRoutes } from './index';
 
@@ -49,6 +51,11 @@ const createContext = (localCall: jest.Mock, dataSourceCall: jest.Mock) => ({
           request: dataSourceCall,
         },
       }),
+      legacy: {
+        getClient: jest.fn(() => ({
+          callAPI: dataSourceCall,
+        })),
+      },
     },
   },
 });
@@ -241,6 +248,94 @@ describe('top queries route errors', () => {
         message: 'Service unavailable',
       },
     });
+  });
+
+  it.each([
+    ['GET /api/live_queries', QUERY_INSIGHTS_ACCESS_DENIED_TITLE],
+    ['GET /api/settings', QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE],
+    ['PUT /api/update_settings', QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE],
+  ])('sanitizes forbidden responses from %s', async (route, expectedMessage) => {
+    const { handlers, router } = createRouter();
+    const localCall = jest.fn().mockRejectedValue({
+      statusCode: 403,
+      message:
+        '[security_exception] no permissions and User [name=arn:aws:iam::123456789012:role/example]',
+    });
+    const context = createContext(localCall, jest.fn());
+    const response = createResponse();
+    defineRoutes(router, false, logger);
+
+    await handlers[route](context, { query: {} }, response);
+
+    expect(response.ok).not.toHaveBeenCalled();
+    expect(response.customError).toHaveBeenCalledWith({
+      statusCode: 403,
+      body: {
+        message: expectedMessage,
+      },
+    });
+    expect(JSON.stringify(response.customError.mock.calls)).not.toContain('arn:aws:iam');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('arn:aws:iam');
+  });
+
+  it('sanitizes a resolved live-query security failure', async () => {
+    const { handlers, router } = createRouter();
+    const localCall = jest.fn().mockResolvedValue({
+      ok: false,
+      error:
+        '[security_exception] no permissions and User [name=arn:aws:iam::123456789012:role/example]',
+    });
+    const context = createContext(localCall, jest.fn());
+    const response = createResponse();
+    defineRoutes(router, false, logger);
+
+    await handlers['GET /api/live_queries'](context, { query: {} }, response);
+
+    expect(response.ok).not.toHaveBeenCalled();
+    expect(response.customError).toHaveBeenCalledWith({
+      statusCode: 403,
+      body: {
+        message: QUERY_INSIGHTS_ACCESS_DENIED_TITLE,
+      },
+    });
+    expect(JSON.stringify(response.customError.mock.calls)).not.toContain('arn:aws:iam');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('arn:aws:iam');
+  });
+
+  it.each([
+    ['GET /api/live_queries', QUERY_INSIGHTS_ACCESS_DENIED_TITLE],
+    ['GET /api/settings', QUERY_INSIGHTS_SETTINGS_ACCESS_DENIED_TITLE],
+    ['PUT /api/update_settings', QUERY_INSIGHTS_SETTINGS_UPDATE_DENIED_TITLE],
+  ])('sanitizes resolved data-source failures from %s', async (route, expectedMessage) => {
+    const { handlers, router } = createRouter();
+    const dataSourceCall = jest.fn().mockResolvedValue({
+      ok: false,
+      response:
+        'Data Source Error: [security_exception] no permissions and User [name=arn:aws:iam::123456789012:role/example]',
+    });
+    const context = createContext(jest.fn(), dataSourceCall);
+    const response = createResponse();
+    defineRoutes(router, true, logger);
+
+    await handlers[route](
+      context,
+      {
+        query: {
+          dataSourceId: 'data-source-id',
+        },
+      },
+      response
+    );
+
+    expect(response.ok).not.toHaveBeenCalled();
+    expect(response.customError).toHaveBeenCalledWith({
+      statusCode: 403,
+      body: {
+        message: expectedMessage,
+      },
+    });
+    expect(JSON.stringify(response.customError.mock.calls)).not.toContain('arn:aws:iam');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('arn:aws:iam');
   });
 });
 

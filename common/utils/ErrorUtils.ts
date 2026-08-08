@@ -45,6 +45,7 @@ const getErrorMessages = (error: unknown): string[] => {
     for (const message of [
       getProperty(container, 'message'),
       getProperty(container, 'reason'),
+      getProperty(container, 'error'),
       getProperty(getProperty(container, 'error'), 'reason'),
     ]) {
       if (typeof message === 'string') messages.push(message);

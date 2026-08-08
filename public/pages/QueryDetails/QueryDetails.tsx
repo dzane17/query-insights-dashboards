@@ -37,6 +37,8 @@ import {
   isVersion35OrHigher,
   isVersion36OrHigher,
 } from '../../utils/version-utils';
+import { QueryInsightsAccessDenied } from '../../components/QueryInsightsAccessDenied';
+import { isForbiddenError } from '../../../common/utils/ErrorUtils';
 
 const QueryDetails = ({
   core,
@@ -61,6 +63,7 @@ const QueryDetails = ({
   const [wlmSupported, setWlmSupported] = useState(false);
   const [statusSupported, setStatusSupported] = useState(false);
   const [userInfoSupported, setUserInfoSupported] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   const history = useHistory();
   const { dataSource, setDataSource } = useContext(DataSourceContext)!;
 
@@ -72,15 +75,25 @@ const QueryDetails = ({
   }, []);
 
   const fetchQueryDetails = async () => {
-    const retrievedQuery = await retrieveQueryById(
-      core,
-      getDataSourceFromUrl().id,
-      from,
-      to,
-      id,
-      verbose
-    );
-    setQuery(retrievedQuery);
+    try {
+      const retrievedQuery = await retrieveQueryById(
+        core,
+        getDataSourceFromUrl().id,
+        from,
+        to,
+        id,
+        verbose
+      );
+      setQuery(retrievedQuery);
+      setAccessDenied(false);
+    } catch (error) {
+      if (isForbiddenError(error)) {
+        setQuery(null);
+        setAccessDenied(true);
+        return;
+      }
+      console.error('Error retrieving query details:', error);
+    }
   };
 
   useEffect(() => {
@@ -242,113 +255,120 @@ const QueryDetails = ({
         onSelectedDataSource={fetchQueryDetails}
         dataSourcePickerReadOnly={true}
       />
-      <EuiFlexItem>
-        <QuerySummary
-          query={query}
-          wlmSupported={wlmSupported}
-          statusSupported={statusSupported}
-          userInfoSupported={userInfoSupported}
-        />
-        <EuiSpacer size="m" />
-        {query?.task_resource_usages?.length > 0 && (
-          <>
-            <EuiPanel data-test-subj={'query-details-task-resource-usages'}>
-              <EuiTitle size="s">
-                <h2>Task Resource Usage</h2>
-              </EuiTitle>
-              <EuiHorizontalRule margin="xs" />
-              <EuiTitle size="xs">
-                <h3>Coordinator Task</h3>
-              </EuiTitle>
-              <EuiHorizontalRule margin="xs" />
-              {query.task_resource_usages
-                .filter((t) => t.parentTaskId === -1)
-                .map((t) => renderCoordinatorSummary(t))}
+      {accessDenied ? (
+        <>
+          <EuiSpacer size="m" />
+          <QueryInsightsAccessDenied dataTestSubj="queryDetailsAccessDenied" />
+        </>
+      ) : (
+        <EuiFlexItem>
+          <QuerySummary
+            query={query}
+            wlmSupported={wlmSupported}
+            statusSupported={statusSupported}
+            userInfoSupported={userInfoSupported}
+          />
+          <EuiSpacer size="m" />
+          {query?.task_resource_usages?.length > 0 && (
+            <>
+              <EuiPanel data-test-subj={'query-details-task-resource-usages'}>
+                <EuiTitle size="s">
+                  <h2>Task Resource Usage</h2>
+                </EuiTitle>
+                <EuiHorizontalRule margin="xs" />
+                <EuiTitle size="xs">
+                  <h3>Coordinator Task</h3>
+                </EuiTitle>
+                <EuiHorizontalRule margin="xs" />
+                {query.task_resource_usages
+                  .filter((t) => t.parentTaskId === -1)
+                  .map((t) => renderCoordinatorSummary(t))}
+                <EuiSpacer size="m" />
+                <EuiTitle size="xs">
+                  <h3>Shard Tasks</h3>
+                </EuiTitle>
+                <EuiHorizontalRule margin="xs" />
+                <EuiInMemoryTable
+                  items={query.task_resource_usages.filter((t) => t.parentTaskId !== -1)}
+                  columns={shardColumns}
+                  itemId="taskId"
+                  pagination={{ initialPageSize: 10, showPerPageOptions: false }}
+                />
+              </EuiPanel>
               <EuiSpacer size="m" />
-              <EuiTitle size="xs">
-                <h3>Shard Tasks</h3>
-              </EuiTitle>
-              <EuiHorizontalRule margin="xs" />
-              <EuiInMemoryTable
-                items={query.task_resource_usages.filter((t) => t.parentTaskId !== -1)}
-                columns={shardColumns}
-                itemId="taskId"
-                pagination={{ initialPageSize: 10, showPerPageOptions: false }}
-              />
-            </EuiPanel>
-            <EuiSpacer size="m" />
-          </>
-        )}
-        <EuiFlexGroup>
-          <EuiFlexItem grow={1} style={{ minWidth: 0 }}>
-            <EuiPanel data-test-subj={'query-details-source-section'}>
-              <EuiFlexGroup alignItems="center" justifyContent="spaceBetween">
-                <EuiFlexItem>
-                  <EuiTitle size="s">
-                    <h2>Query</h2>
-                  </EuiTitle>
-                </EuiFlexItem>
-                {queryDisplay && !queryDisplay.includes('...truncated') && (
-                  <EuiFlexItem grow={false}>
-                    <EuiButton
-                      size="s"
-                      onClick={() => {
-                        try {
-                          const { profile: _p, ...rest } = JSON.parse(queryDisplay);
-                          const profilerBody = { profile: true, ...rest };
-                          const indexPath = query?.indices?.join(',') || '_search';
-                          const searchPath =
-                            indexPath === '_search' ? '_search' : `${indexPath}/_search`;
-                          const profilerQuery = `GET ${searchPath}\n${JSON.stringify(
-                            profilerBody,
-                            null,
-                            2
-                          )}`;
-                          localStorage.setItem('profilerQuery', profilerQuery);
-                          if (dataSource?.id) {
-                            localStorage.setItem('profilerDataSourceId', dataSource.id);
-                          }
-                          window.location.href = core.http.basePath.prepend(
-                            '/app/dev_tools#/queryProfiler'
-                          );
-                        } catch (e) {
-                          console.error('Failed to parse query for profiler', e);
-                        }
-                      }}
-                    >
-                      Open in Profiler
-                    </EuiButton>
+            </>
+          )}
+          <EuiFlexGroup>
+            <EuiFlexItem grow={1} style={{ minWidth: 0 }}>
+              <EuiPanel data-test-subj={'query-details-source-section'}>
+                <EuiFlexGroup alignItems="center" justifyContent="spaceBetween">
+                  <EuiFlexItem>
+                    <EuiTitle size="s">
+                      <h2>Query</h2>
+                    </EuiTitle>
                   </EuiFlexItem>
-                )}
-              </EuiFlexGroup>
-              <EuiHorizontalRule margin="xs" />
-              <EuiSpacer size="xs" />
-              <EuiCodeBlock
-                language="jsx"
-                paddingSize="m"
-                fontSize="s"
-                overflowHeight={600}
-                isCopyable
-              >
-                {queryDisplay}
-              </EuiCodeBlock>
-            </EuiPanel>
-          </EuiFlexItem>
-          <EuiFlexItem grow={1} style={{ alignSelf: 'start', minWidth: 0 }}>
-            <EuiPanel data-test-subj={'query-details-latency-chart'}>
-              <EuiTitle size="xs">
-                <h2>Latency</h2>
-              </EuiTitle>
-              <EuiHorizontalRule margin="xs" />
-              <ReactECharts
-                option={chartOptions}
-                style={{ height: 120, width: '100%' }}
-                opts={{ renderer: 'svg' }}
-              />
-            </EuiPanel>
-          </EuiFlexItem>
-        </EuiFlexGroup>
-      </EuiFlexItem>
+                  {queryDisplay && !queryDisplay.includes('...truncated') && (
+                    <EuiFlexItem grow={false}>
+                      <EuiButton
+                        size="s"
+                        onClick={() => {
+                          try {
+                            const { profile: _p, ...rest } = JSON.parse(queryDisplay);
+                            const profilerBody = { profile: true, ...rest };
+                            const indexPath = query?.indices?.join(',') || '_search';
+                            const searchPath =
+                              indexPath === '_search' ? '_search' : `${indexPath}/_search`;
+                            const profilerQuery = `GET ${searchPath}\n${JSON.stringify(
+                              profilerBody,
+                              null,
+                              2
+                            )}`;
+                            localStorage.setItem('profilerQuery', profilerQuery);
+                            if (dataSource?.id) {
+                              localStorage.setItem('profilerDataSourceId', dataSource.id);
+                            }
+                            window.location.href = core.http.basePath.prepend(
+                              '/app/dev_tools#/queryProfiler'
+                            );
+                          } catch (e) {
+                            console.error('Failed to parse query for profiler', e);
+                          }
+                        }}
+                      >
+                        Open in Profiler
+                      </EuiButton>
+                    </EuiFlexItem>
+                  )}
+                </EuiFlexGroup>
+                <EuiHorizontalRule margin="xs" />
+                <EuiSpacer size="xs" />
+                <EuiCodeBlock
+                  language="jsx"
+                  paddingSize="m"
+                  fontSize="s"
+                  overflowHeight={600}
+                  isCopyable
+                >
+                  {queryDisplay}
+                </EuiCodeBlock>
+              </EuiPanel>
+            </EuiFlexItem>
+            <EuiFlexItem grow={1} style={{ alignSelf: 'start', minWidth: 0 }}>
+              <EuiPanel data-test-subj={'query-details-latency-chart'}>
+                <EuiTitle size="xs">
+                  <h2>Latency</h2>
+                </EuiTitle>
+                <EuiHorizontalRule margin="xs" />
+                <ReactECharts
+                  option={chartOptions}
+                  style={{ height: 120, width: '100%' }}
+                  opts={{ renderer: 'svg' }}
+                />
+              </EuiPanel>
+            </EuiFlexItem>
+          </EuiFlexGroup>
+        </EuiFlexItem>
+      )}
     </div>
   );
 };
