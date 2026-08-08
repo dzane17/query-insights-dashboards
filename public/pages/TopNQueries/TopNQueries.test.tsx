@@ -281,9 +281,7 @@ describe('TopNQueries Component', () => {
     window.history.replaceState(
       {},
       '',
-      `/?dataSource=${encodeURIComponent(
-        JSON.stringify({ id: 'source-a', label: 'Source A' })
-      )}`
+      `/?dataSource=${encodeURIComponent(JSON.stringify({ id: 'source-a', label: 'Source A' }))}`
     );
 
     renderTopNQueries(CONFIGURATION);
@@ -305,9 +303,7 @@ describe('TopNQueries Component', () => {
     window.history.replaceState(
       {},
       '',
-      `/?dataSource=${encodeURIComponent(
-        JSON.stringify({ id: 'source-b', label: 'Source B' })
-      )}`
+      `/?dataSource=${encodeURIComponent(JSON.stringify({ id: 'source-b', label: 'Source B' }))}`
     );
     await act(async () => {
       await mockConfigurationProps!.configInfo(true);

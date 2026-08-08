@@ -92,9 +92,7 @@ const inflightWithDataSource = (core: CoreStart, dataSourceId: string) => (
     >
       <InflightQueries
         core={core}
-        depsStart={
-          { data: { dataSources: { get: jest.fn().mockReturnValue(core.http) } } } as any
-        }
+        depsStart={{ data: { dataSources: { get: jest.fn().mockReturnValue(core.http) } } } as any}
         params={{} as any}
         dataSourceManagement={undefined}
       />
@@ -392,10 +390,9 @@ describe('InflightQueries', () => {
 
     const { rerender } = render(inflightWithDataSource(core, 'source-a'));
     await waitFor(() => expect(getVersionOnce).toHaveBeenCalledWith('source-a'));
-    await waitFor(
-      () => expect(screen.getAllByText('WLM Group').length).toBeGreaterThan(0),
-      { timeout: 5000 }
-    );
+    await waitFor(() => expect(screen.getAllByText('WLM Group').length).toBeGreaterThan(0), {
+      timeout: 5000,
+    });
 
     rerender(inflightWithDataSource(core, 'source-b'));
     await waitFor(() => expect(getVersionOnce).toHaveBeenCalledWith('source-b'));

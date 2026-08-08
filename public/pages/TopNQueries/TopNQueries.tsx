@@ -192,9 +192,8 @@ const TopNQueries = ({
 
   const [queries, setQueries] = useState<SearchQueryRecord[]>([]);
   const [queryAccessDenied, setQueryAccessDenied] = useState(false);
-  const [configurationLoadState, setConfigurationLoadState] = useState<ConfigurationLoadState>(
-    'loading'
-  );
+  const [configurationLoadState, setConfigurationLoadState] =
+    useState<ConfigurationLoadState>('loading');
   const latestQueryRequestId = useRef(0);
   const latestConfigRequestId = useRef(0);
 
