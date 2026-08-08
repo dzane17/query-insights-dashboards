@@ -41,8 +41,10 @@ export const DataSourceMenu = React.memo(
       dataSourceFilter = isDataSourceCompatible,
     } = props;
     const { setHeaderActionMenu } = params;
-    const DataSourceMenuComponent =
-      dataSourceManagement?.ui.getDataSourceMenu<DataSourceSelectableConfig>();
+    const DataSourceMenuComponent = React.useMemo(
+      () => dataSourceManagement?.ui.getDataSourceMenu<DataSourceSelectableConfig>(),
+      [dataSourceManagement]
+    );
 
     const dataSourceEnabled = !!depsStart.dataSource?.dataSourceEnabled;
 
